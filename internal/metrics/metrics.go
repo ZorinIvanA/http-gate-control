@@ -34,11 +34,6 @@ func init() {
 	prometheus.MustRegister(RequestCounter, BlockedCounter, RateLimitCounter)
 }
 
-// MustRegister — регистрирует метрики вручную, если нужно
-func MustRegister() {
-	prometheus.MustRegister(RequestCounter, BlockedCounter, RateLimitCounter)
-}
-
 func PrometheusMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		RequestCounter.Inc()

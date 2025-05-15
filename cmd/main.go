@@ -22,9 +22,6 @@ import (
 func main() {
 	cfg := config.MustLoad()
 
-	// Инициализация метрик
-	metrics.MustRegister()
-
 	// Инициализация клиентов
 	relayClient := client.NewRelayClient(cfg.RelayURL)
 	loggerClient := logger.NewHTTPLogger(cfg.LoggerURL)
