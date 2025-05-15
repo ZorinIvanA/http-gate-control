@@ -3,34 +3,43 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
 type Config struct {
+	Port      string
 	RelayURL  string
 	LoggerURL string
 	OpenDelay time.Duration
-	Port      string
+	RateLimit int
 }
 
-func NewConfig() (*Config, error) {
-	openDelay := 5
-	if delayStr := os.Getenv("OPEN_DELAY"); delayStr != "" {
-		_, err := fmt.Sscanf(delayStr, "%d", &openDelay)
-		if err != nil {
-			return nil, err
-		}
+func MustLoad() *Config {
+	delayStr := getEnv("OPEN_DELAY", "5")
+	delay, err := strconv.Atoi(delayStr)
+	if err != nil {
+		panic(fmt.Errorf("invalid OPEN_DELAY: %w", err))
 	}
 
-	relayURL := os.Getenv("RELAY_URL")
-	if relayURL == "" {
-		return nil, fmt.Errorf("RELAY_URL is required")
+	rateLimitStr := getEnv("RATE_LIMIT", "100")
+	rateLimit, err := strconv.Atoi(rateLimitStr)
+	if err != nil {
+		panic(fmt.Errorf("invalid RATE_LIMIT: %w", err))
 	}
 
 	return &Config{
-		RelayURL:  relayURL,
+		Port:      getEnv("PORT", "8080"),
+		RelayURL:  os.Getenv("RELAY_URL"),
 		LoggerURL: os.Getenv("LOGGER_URL"),
-		OpenDelay: time.Duration(openDelay) * time.Second,
-		Port:      os.Getenv("PORT"),
-	}, nil
+		OpenDelay: time.Duration(delay) * time.Second,
+		RateLimit: rateLimit,
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
 }

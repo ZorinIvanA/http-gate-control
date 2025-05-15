@@ -4,46 +4,44 @@ import (
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
-	rpsCounter = promauto.NewCounterVec(
+	RequestCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "http_gate_requests_total",
-			Help: "Total number of HTTP requests.",
+			Name: "gate_requests_total",
+			Help: "Total number of gate requests.",
 		},
-		[]string{"method"},
 	)
-	blockedCounter = promauto.NewCounter(
+
+	// Меняем Counter на Gauge для возможности сброса
+	BlockedCounter = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "gate_blocked_total",
+			Help: "Number of blocked gate openings in the current window.",
+		},
+	)
+
+	RateLimitCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "http_gate_blocked_total",
-			Help: "Total number of blocked gate openings.",
+			Name: "rate_limit_exceeded_total",
+			Help: "Total number of rate limit exceeded errors.",
 		},
 	)
 )
 
-func NewMetrics() Metrics {
-	return &prometheusMetrics{}
+func init() {
+	prometheus.MustRegister(RequestCounter, BlockedCounter, RateLimitCounter)
 }
 
-type Metrics interface {
-	IncRPS(method string)
-	IncBlocked()
-	Handler() http.Handler
+// MustRegister — регистрирует метрики вручную, если нужно
+func MustRegister() {
+	prometheus.MustRegister(RequestCounter, BlockedCounter, RateLimitCounter)
 }
 
-type prometheusMetrics struct{}
-
-func (m *prometheusMetrics) IncRPS(method string) {
-	rpsCounter.WithLabelValues(method).Inc()
-}
-
-func (m *prometheusMetrics) IncBlocked() {
-	blockedCounter.Inc()
-}
-
-func (m *prometheusMetrics) Handler() http.Handler {
-	return promhttp.Handler()
+func PrometheusMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		RequestCounter.Inc()
+		next.ServeHTTP(w, r)
+	})
 }

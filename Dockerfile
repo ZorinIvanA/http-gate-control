@@ -1,11 +1,20 @@
-# Stage 1: Build
-FROM golang:1.24 as builder
-WORKDIR /app
-COPY . .
-RUN CGO_ENABLED=0 go build -o /http-gate-control cmd/main.go
+# Build stage
+FROM golang:1.24-alpine AS builder
 
-# Stage 2: Run
+WORKDIR /app
+
+COPY go.mod .
+COPY go.sum .
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 go build -o /gate-control cmd/main.go
+
+# Final stage
 FROM gcr.io/distroless/static-debian12
-COPY --from=builder /http-gate-control /http-gate-control
+
+COPY --from=builder /gate-control /gate-control
+
 EXPOSE 8080
-CMD ["/http-gate-control"]
+
+CMD ["/gate-control"]

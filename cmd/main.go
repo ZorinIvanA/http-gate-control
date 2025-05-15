@@ -12,51 +12,65 @@ import (
 	"github.com/ZorinIvanA/http-gate-control/internal/client"
 	"github.com/ZorinIvanA/http-gate-control/internal/config"
 	"github.com/ZorinIvanA/http-gate-control/internal/handler"
+	"github.com/ZorinIvanA/http-gate-control/internal/logger"
 	"github.com/ZorinIvanA/http-gate-control/internal/metrics"
-	"github.com/ZorinIvanA/http-gate-control/internal/middleware"
 	"github.com/ZorinIvanA/http-gate-control/internal/service"
-	"github.com/gin-gonic/gin"
-	"github.com/swaggo/gin-swagger"
+	"github.com/go-chi/chi"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
-	cfg, err := config.NewConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
+	cfg := config.MustLoad()
 
+	// Инициализация метрик
+	metrics.MustRegister()
+
+	// Инициализация клиентов
 	relayClient := client.NewRelayClient(cfg.RelayURL)
-	loggerClient := client.NewLoggerClient(cfg.LoggerURL)
-	metrics := metrics.NewMetrics()
-	gateService := service.NewGateService(relayClient, loggerClient, metrics, cfg.OpenDelay)
+	loggerClient := logger.NewHTTPLogger(cfg.LoggerURL)
 
-	r := gin.Default()
-	r.Use(middleware.RateLimit(100, 1000))
+	// Инициализация сервиса
+	gateService := service.NewGateService(cfg.OpenDelay)
 
-	r.GET("/open", handler.OpenHandler(gateService))
-	r.GET("/metrics", gin.WrapH(metrics.Handler()))
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// Инициализация хендлера
+	gateHandler := handler.NewGateHandler(gateService, relayClient, loggerClient)
 
-	srv := &http.Server{
+	// Инициализация роутера
+	router := chi.NewRouter()
+
+	// Middleware
+	router.Use(metrics.PrometheusMiddleware)
+	router.Use(handler.RateLimiterMiddleware(cfg.RateLimit))
+
+	// Маршруты
+	router.Post("/open", gateHandler.HandleOpen)
+	router.Mount("/metrics", promhttp.Handler())
+
+	// Сервер
+	server := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: r,
+		Handler: router,
 	}
 
+	// Горутина запуска сервера
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+		log.Printf("Server started on :%s", cfg.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
 		}
 	}()
 
+	// Ожидание сигналов завершения
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	log.Println("Server shutting down...")
 
+	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown:", err)
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 
 	log.Println("Server exiting")
